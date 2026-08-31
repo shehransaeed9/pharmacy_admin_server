@@ -1,0 +1,121 @@
+{% extends 'admin_base.html' %}
+{% block title %}Pharmacies{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Pharmacies</h1>
+    <div class="subtitle">Manage subscriptions, plans, and access for every pharmacy on MedInventory.</div>
+  </div>
+</div>
+
+<div class="row mb-4 g-3">
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value">{{ total_count }}</div>
+      <div class="stat-label">Total Pharmacies</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value text-success">{{ active_count }}</div>
+      <div class="stat-label">Active Subscriptions</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value {{ 'text-warning' if pending_claims else '' }}">{{ pending_claims|length }}</div>
+      <div class="stat-label">Pending Payment Claims</div>
+    </div>
+  </div>
+</div>
+
+{% if pending_claims %}
+<div class="card p-3 mb-4">
+  <h5>Pending "I've Paid" Claims</h5>
+  <p class="text-muted small">A pharmacy submitted a payment notice — confirm only after you've verified the transaction ID / reference against the payment you actually received.</p>
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Pharmacy</th><th>Method</th><th>Reference / Note</th><th>Submitted</th><th></th></tr></thead>
+    <tbody>
+      {% for claim in pending_claims %}
+      <tr>
+        <td>{{ claim.pharmacy.name }}</td>
+        <td>{{ claim.method }}</td>
+        <td>{{ claim.note or '-' }}</td>
+        <td>{{ claim.created_on.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="text-end">
+          <form method="POST" action="{{ url_for('admin_resolve_claim', claim_id=claim.id, action='confirm') }}" class="d-inline">
+            <button class="btn btn-sm btn-success">Confirm (+30 days)</button>
+          </form>
+          <form method="POST" action="{{ url_for('admin_resolve_claim', claim_id=claim.id, action='dismiss') }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-secondary">Dismiss</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card p-3">
+  <h5>All Pharmacies</h5>
+  <div class="table-responsive">
+  <table class="table align-middle">
+    <thead>
+      <tr>
+        <th>Pharmacy Name</th><th>Owner</th><th>Address</th><th>Contact</th><th>Status</th><th>Expiry</th>
+        <th>Last Check-in</th><th>App Version</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pharmacies %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td>{{ p.owner_name or '-' }}</td>
+        <td>{{ (p.address ~ (', ' ~ p.city if p.city else '')) if p.address else (p.city or '-') }}</td>
+        <td>{{ p.contact or '-' }}</td>
+        <td>
+          {% if p.disabled %}
+            <span class="badge bg-dark">Unsubscribed</span>
+          {% elif p.is_active and p.has_paid %}
+            <span class="badge bg-success">Paid &middot; {{ p.days_left }}d left</span>
+          {% elif p.is_active %}
+            <span class="badge bg-info text-dark">Trial &middot; {{ p.days_left }}d left</span>
+          {% else %}
+            <span class="badge bg-danger">Expired</span>
+          {% endif %}
+        </td>
+        <td>{{ p.subscription_expiry.strftime('%Y-%m-%d') }}</td>
+        <td>{{ p.last_checkin.strftime('%Y-%m-%d %H:%M') if p.last_checkin else 'Never' }}</td>
+        <td>{{ p.app_version or '-' }}</td>
+        <td class="text-end">
+          <form method="POST" action="{{ url_for('admin_extend', pharmacy_id=p.id) }}" class="d-inline-flex gap-1">
+            <select class="form-select form-select-sm" style="width:130px"
+                    onchange="this.nextElementSibling.value = this.value">
+              {% for plan in plans %}
+              <option value="{{ plan.days }}">{{ plan.label }} ({{ plan.fee }})</option>
+              {% endfor %}
+            </select>
+            <input type="number" name="days" value="{{ plans[0].days }}" class="form-control form-control-sm"
+                   style="width:60px" title="Exact number of days to extend by">
+            <button class="btn btn-sm btn-primary">Extend</button>
+          </form>
+          {% if p.disabled %}
+          <form method="POST" action="{{ url_for('admin_toggle_disabled', pharmacy_id=p.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-success">Resubscribe</button>
+          </form>
+          {% else %}
+          <form method="POST" action="{{ url_for('admin_unsubscribe', pharmacy_id=p.id) }}" class="d-inline"
+                onsubmit="return confirm('Unsubscribe {{ p.name }}? Their app will lock on next check-in.');">
+            <button class="btn btn-sm btn-outline-danger">Unsubscribe</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

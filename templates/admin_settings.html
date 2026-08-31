@@ -1,0 +1,78 @@
+{% extends 'admin_base.html' %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="card p-4 col-md-8 mx-auto">
+  <h4 class="mb-3">Settings</h4>
+  <p class="text-muted small">Every pharmacy sees these values the next time their app checks in with this server.</p>
+  <form method="POST">
+    <h6 class="mt-2">Subscription Plans</h6>
+    <p class="text-muted small">Offer up to 3 period/price options — pharmacies pick one when subscribing.
+       Leave a plan's label blank to hide it (e.g. leave Plan 3 blank to offer only 2 plans).</p>
+    <div class="row mb-3 g-2">
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="fw-semibold small mb-2">Plan 1</div>
+          <label class="form-label small">Label</label>
+          <input type="text" name="plan1_label" class="form-control form-control-sm mb-2" value="{{ values.plan1_label }}" placeholder="e.g. 1 Month">
+          <label class="form-label small">Days</label>
+          <input type="number" name="plan1_days" class="form-control form-control-sm mb-2" value="{{ values.plan1_days }}">
+          <label class="form-label small">Amount</label>
+          <input type="text" name="plan1_fee" class="form-control form-control-sm" value="{{ values.plan1_fee }}">
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="fw-semibold small mb-2">Plan 2</div>
+          <label class="form-label small">Label</label>
+          <input type="text" name="plan2_label" class="form-control form-control-sm mb-2" value="{{ values.plan2_label }}" placeholder="e.g. 3 Months">
+          <label class="form-label small">Days</label>
+          <input type="number" name="plan2_days" class="form-control form-control-sm mb-2" value="{{ values.plan2_days }}">
+          <label class="form-label small">Amount</label>
+          <input type="text" name="plan2_fee" class="form-control form-control-sm" value="{{ values.plan2_fee }}">
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="fw-semibold small mb-2">Plan 3 (optional)</div>
+          <label class="form-label small">Label</label>
+          <input type="text" name="plan3_label" class="form-control form-control-sm mb-2" value="{{ values.plan3_label }}" placeholder="e.g. 12 Months, or leave blank">
+          <label class="form-label small">Days</label>
+          <input type="number" name="plan3_days" class="form-control form-control-sm mb-2" value="{{ values.plan3_days }}">
+          <label class="form-label small">Amount</label>
+          <input type="text" name="plan3_fee" class="form-control form-control-sm" value="{{ values.plan3_fee }}">
+        </div>
+      </div>
+    </div>
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <label class="form-label">Legacy Subscription Fee <span class="text-muted small">(kept for older app copies)</span></label>
+        <input type="text" name="subscription_fee" class="form-control" value="{{ values.subscription_fee }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Legacy Billing Period Label</label>
+        <input type="text" name="billing_period" class="form-control" value="{{ values.billing_period }}" placeholder="e.g. month, year">
+      </div>
+    </div>
+    <hr>
+    <div class="mb-3">
+      <label class="form-label">Bank Transfer Details</label>
+      <textarea name="bank_details" class="form-control" rows="3">{{ values.bank_details }}</textarea>
+    </div>
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <label class="form-label">JazzCash Number</label>
+        <input type="text" name="jazzcash_number" class="form-control" value="{{ values.jazzcash_number }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Easypaisa Number</label>
+        <input type="text" name="easypaisa_number" class="form-control" value="{{ values.easypaisa_number }}">
+      </div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Update / Announcement Message</label>
+      <textarea name="update_message" class="form-control" rows="2" placeholder="Shown on every pharmacy's dashboard, e.g. 'New version available, contact us to update.' Leave blank to show nothing.">{{ values.update_message }}</textarea>
+    </div>
+    <button class="btn btn-primary">Save Settings</button>
+  </form>
+</div>
+{% endblock %}
