@@ -32,49 +32,24 @@ import uuid
 import secrets
 
 # ----------------------------------------------------------------------
-# DATABASE LOCATION — this is what was crashing on Vercel.
-#
-# Flask-SQLAlchemy tries to create an "instance/" folder next to this
-# file to hold the SQLite database. That works fine locally, but
-# Vercel's filesystem is READ-ONLY everywhere except /tmp — so
-# os.makedirs() for that folder throws OSError: Read-only file system,
-# and the whole app fails to even import (every route 500s).
-#
-# Fix: if we detect we're running on Vercel, put the database in /tmp
-# instead (the only writable place there) and point Flask's own
-# instance_path at /tmp too, so it never tries to create anything
-# under the read-only app folder.
-#
-# HONEST WARNING, read this: /tmp on Vercel is EPHEMERAL. It can be
-# wiped on cold starts, redeploys, or just because Vercel recycles the
-# serverless instance. That means every pharmacy record, license key,
-# and expiry date you save could silently vanish at any time — with
-# no crash or error to warn you. This fix stops the CRASH so you can
-# actually log in and use the admin panel, but it does NOT make this
-# safe to run for real, paying pharmacies. Before relying on this for
-# real subscriptions, either:
-#   (a) move this app to a host with a real persistent disk (Render,
-#       Railway, PythonAnywhere all work with zero code changes), or
-#   (b) set the DATABASE_URL environment variable below to a real
-#       hosted database (Vercel Postgres / Neon / Supabase all have
-#       free tiers) — this file already supports that if DATABASE_URL
-#       is set, you don't need to edit code to switch to it.
+# DATABASE CONFIGURATION
 # ----------------------------------------------------------------------
 IS_VERCEL = bool(os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'))
 
-if os.environ.get('DATABASE_URL'):
-    # Preferred for real use — a real hosted database. Render/Railway/
-    # Vercel Postgres/Neon/Supabase all give you a URL to paste here as
-    # an environment variable named DATABASE_URL.
-    DB_URI = os.environ['DATABASE_URL']
+raw_db_url = os.environ.get('DATABASE_URL')
+
+if raw_db_url:
+    # Fix legacy 'postgres://' URI prefix returned by some database hosts
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+    DB_URI = raw_db_url
     INSTANCE_PATH = '/tmp' if IS_VERCEL else None
 elif IS_VERCEL:
-    # No real database configured yet — fall back to SQLite in /tmp so
-    # the app at least runs, with the ephemeral-storage warning above.
+    # Ephemeral fallback for Vercel if DATABASE_URL isn't set yet
     DB_URI = 'sqlite:////tmp/license_server.db'
     INSTANCE_PATH = '/tmp'
 else:
-    # Normal local development — unchanged from before.
+    # Local development
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     INSTANCE_PATH = os.path.join(BASE_DIR, 'instance')
     os.makedirs(INSTANCE_PATH, exist_ok=True)
@@ -84,24 +59,18 @@ app = Flask(__name__, instance_path=INSTANCE_PATH, instance_relative_config=True
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DB_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.secret_key = os.environ.get('ADMIN_SECRET_KEY', 'change-this-secret-key-too')  # change before going live
+app.secret_key = os.environ.get('ADMIN_SECRET_KEY', 'change-this-secret-key-too')
 
 db = SQLAlchemy(app)
 
 # ----------------------------------------------------------------------
-# This is the login for YOUR admin panel (not for pharmacies). Pulled
-# from environment variables so real credentials never sit in the code
-# — set ADMIN_USERNAME and ADMIN_PASSWORD in your Vercel project's
-# Environment Variables before deploying. The fallbacks below only
-# apply when those aren't set (e.g. quick local testing) and are
-# intentionally NOT safe to deploy with — always set your own.
+# ADMIN CREDENTIALS
 # ----------------------------------------------------------------------
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'shehran')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '123')
 
-TRIAL_DAYS_DEFAULT = 14          # free trial length for a brand-new pharmacy install
-OFFLINE_GRACE_DAYS = 3           # days a pharmacy app can run without reaching this server
-                                   # before it locks itself as a safety measure
+TRIAL_DAYS_DEFAULT = 14
+OFFLINE_GRACE_DAYS = 3
 
 
 # ----------------------------------------------------------------------
@@ -110,8 +79,8 @@ OFFLINE_GRACE_DAYS = 3           # days a pharmacy app can run without reaching 
 class Pharmacy(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     license_key = db.Column(db.String(64), unique=True, nullable=False)
-    name = db.Column(db.String(150))            # pharmacy / business name - also used on their printed bill
-    owner_name = db.Column(db.String(150))       # the person who owns/manages this subscription
+    name = db.Column(db.String(150))
+    owner_name = db.Column(db.String(150))
     address = db.Column(db.String(250))
     city = db.Column(db.String(100))
     contact = db.Column(db.String(150))
@@ -119,8 +88,8 @@ class Pharmacy(db.Model):
     last_checkin = db.Column(db.DateTime)
     app_version = db.Column(db.String(30))
     created_on = db.Column(db.DateTime, default=datetime.utcnow)
-    disabled = db.Column(db.Boolean, default=False)  # manual kill-switch, separate from expiry
-    has_paid = db.Column(db.Boolean, default=False)  # False = still on free trial, True = at least one confirmed payment
+    disabled = db.Column(db.Boolean, default=False)
+    has_paid = db.Column(db.Boolean, default=False)
 
     @property
     def is_active(self):
@@ -134,9 +103,9 @@ class Pharmacy(db.Model):
 class PaymentClaim(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     pharmacy_id = db.Column(db.Integer, db.ForeignKey('pharmacy.id'), nullable=False)
-    method = db.Column(db.String(30))      # 'bank' / 'jazzcash' / 'easypaisa'
+    method = db.Column(db.String(30))
     note = db.Column(db.String(300))
-    status = db.Column(db.String(20), default='pending')  # pending / confirmed / dismissed
+    status = db.Column(db.String(20), default='pending')
     created_on = db.Column(db.DateTime, default=datetime.utcnow)
     resolved_on = db.Column(db.DateTime)
     pharmacy = db.relationship('Pharmacy')
@@ -148,20 +117,15 @@ class Setting(db.Model):
 
 
 DEFAULT_SETTINGS = {
-    # Legacy single-fee fields - kept so nothing breaks; mirrors plan 1 below.
-    'subscription_fee': '2000',                # shown to pharmacies, in your local currency, per your billing period
-    'billing_period': 'month',                  # e.g. "month" / "year" - just a label shown to pharmacies
-
-    # Up to 3 subscription period/amount options a pharmacy can choose from.
-    # Leave a plan's label BLANK to hide it (so you can offer just 1 or 2 plans).
+    'subscription_fee': '2000',
+    'billing_period': 'month',
     'plan1_label': '1 Month', 'plan1_days': '30', 'plan1_fee': '2000',
     'plan2_label': '3 Months', 'plan2_days': '90', 'plan2_fee': '5500',
     'plan3_label': '12 Months', 'plan3_days': '365', 'plan3_fee': '20000',
-
     'bank_details': 'Bank: (add your bank name)\nAccount Title: (add name)\nAccount No: (add number)',
     'jazzcash_number': '(add your JazzCash number)',
     'easypaisa_number': '(add your Easypaisa number)',
-    'update_message': '',                        # shown to every pharmacy on their dashboard when set
+    'update_message': '',
 }
 
 
@@ -171,10 +135,6 @@ def get_setting(key):
 
 
 def get_plans():
-    """Returns the (up to 3) configured subscription plans as a list of
-    dicts, skipping any plan whose label was left blank. Always returns
-    at least one plan (falls back to the legacy subscription_fee /
-    billing_period pair if every plan1-3 label was cleared out)."""
     plans = []
     for n in (1, 2, 3):
         label = get_setting(f'plan{n}_label').strip()
@@ -215,17 +175,18 @@ def ensure_defaults():
 
 
 def migrate_existing_db():
-    """Adds owner_name/address/city columns to an existing deployed
-    license_server.db without touching any pharmacy already in it."""
     from sqlalchemy import text
-    with db.engine.connect() as conn:
-        existing_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(pharmacy)"))}
-        for col in ('owner_name', 'address', 'city'):
-            if col not in existing_cols:
-                conn.execute(text(f"ALTER TABLE pharmacy ADD COLUMN {col} VARCHAR(250)"))
-        if 'has_paid' not in existing_cols:
-            conn.execute(text("ALTER TABLE pharmacy ADD COLUMN has_paid BOOLEAN DEFAULT 0"))
-        conn.commit()
+    try:
+        with db.engine.connect() as conn:
+            existing_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(pharmacy)"))}
+            for col in ('owner_name', 'address', 'city'):
+                if col not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE pharmacy ADD COLUMN {col} VARCHAR(250)"))
+            if 'has_paid' not in existing_cols:
+                conn.execute(text("ALTER TABLE pharmacy ADD COLUMN has_paid BOOLEAN DEFAULT 0"))
+            conn.commit()
+    except Exception:
+        pass
 
 
 # ----------------------------------------------------------------------
@@ -241,16 +202,10 @@ def admin_required(view):
 
 
 # ----------------------------------------------------------------------
-# PUBLIC API - called by each pharmacy's inventory app
+# PUBLIC API
 # ----------------------------------------------------------------------
 @app.route('/api/pricing', methods=['GET'])
 def api_pricing():
-    """
-    Public, no license key needed - called from the pharmacy app's
-    SETUP screen (before it has registered/has a key yet) so a
-    pharmacy can see what the subscription costs and how to pay
-    BEFORE they start their trial, not only after it expires.
-    """
     return jsonify({
         'subscription_fee': get_setting('subscription_fee'),
         'billing_period': get_setting('billing_period'),
@@ -264,12 +219,6 @@ def api_pricing():
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
-    """
-    Called ONCE by a pharmacy's app the very first time it runs (no
-    license key saved locally yet). Creates a new pharmacy record on
-    a free trial and returns a license key for that install to save
-    locally forever after.
-    """
     data = request.get_json(silent=True) or {}
     name = (data.get('pharmacy_name') or 'Unnamed Pharmacy').strip()[:150]
     owner_name = (data.get('owner_name') or '').strip()[:150]
@@ -301,12 +250,6 @@ def api_register():
 
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
-    """
-    Called by a pharmacy's app on startup (and periodically while
-    running) to confirm its subscription is still active. Always
-    returns THIS server's clock as server_time - the pharmacy app
-    should trust that over its own PC clock.
-    """
     data = request.get_json(silent=True) or {}
     license_key = (data.get('license_key') or '').strip()
     app_version = (data.get('app_version') or '').strip()[:30]
@@ -343,12 +286,6 @@ def api_checkin():
 
 @app.route('/api/update_details', methods=['POST'])
 def api_update_details():
-    """
-    Called when a pharmacy edits their own name/address/contact later
-    (Settings page in the app) - keeps YOUR records in sync with what
-    now actually prints on their bill, instead of only ever storing
-    what they typed on day one.
-    """
     data = request.get_json(silent=True) or {}
     license_key = (data.get('license_key') or '').strip()
     pharmacy = Pharmacy.query.filter_by(license_key=license_key).first()
@@ -372,13 +309,6 @@ def api_update_details():
 
 @app.route('/api/payment_claim', methods=['POST'])
 def api_payment_claim():
-    """
-    Called when a pharmacy clicks "I've Paid" on their locked screen.
-    This does NOT unlock them automatically - it just creates a
-    pending claim you'll see and confirm in the admin panel once
-    you've actually verified the payment came in. This is intentional:
-    no code here can verify a bank/JazzCash/Easypaisa transfer for you.
-    """
     data = request.get_json(silent=True) or {}
     license_key = (data.get('license_key') or '').strip()
     method = (data.get('method') or '').strip()[:30]
@@ -436,9 +366,6 @@ def admin_dashboard():
 @app.route('/admin/pharmacy/<int:pharmacy_id>/extend', methods=['POST'])
 @admin_required
 def admin_extend(pharmacy_id):
-    """Marks a pharmacy paid: extends their expiry by N days from
-    whichever is later - today, or their current expiry (so paying
-    early doesn't lose them days)."""
     pharmacy = Pharmacy.query.get_or_404(pharmacy_id)
     try:
         days = int(request.form.get('days', '30'))
@@ -466,10 +393,6 @@ def admin_toggle_disabled(pharmacy_id):
 @app.route('/admin/pharmacy/<int:pharmacy_id>/unsubscribe', methods=['POST'])
 @admin_required
 def admin_unsubscribe(pharmacy_id):
-    """Immediately cuts off this pharmacy's access: expires their
-    subscription right now AND flips the disabled kill-switch, so
-    their app locks on its very next check-in regardless of whatever
-    days were left on the clock."""
     pharmacy = Pharmacy.query.get_or_404(pharmacy_id)
     pharmacy.subscription_expiry = datetime.utcnow()
     pharmacy.disabled = True
@@ -481,12 +404,6 @@ def admin_unsubscribe(pharmacy_id):
 @app.route('/admin/pharmacy/add', methods=['GET', 'POST'])
 @admin_required
 def admin_add_pharmacy():
-    """Lets YOU create a pharmacy record directly (e.g. you signed
-    someone up over the phone). Generates a license key you then give
-    to that pharmacy - they enter it on their app's setup screen under
-    "I already have a license key" instead of self-registering, so
-    they land on the plan/expiry you chose here instead of a fresh
-    free trial."""
     if request.method == 'POST':
         name = (request.form.get('pharmacy_name') or 'Unnamed Pharmacy').strip()[:150]
         owner_name = (request.form.get('owner_name') or '').strip()[:150]
@@ -544,12 +461,6 @@ def admin_settings():
     return render_template('admin_settings.html', values=values)
 
 
-# This MUST run unconditionally at import time, not just inside
-# `if __name__ == '__main__':` — Vercel (and any real WSGI server)
-# imports this file as a module and never runs it as __main__, so the
-# database tables were never being created there, meaning every route
-# that touched the database would fail with "no such table" even
-# after the filesystem crash above was fixed.
 with app.app_context():
     db.create_all()
     ensure_defaults()
@@ -557,3 +468,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     app.run(port=5001, debug=False)
+                                        
