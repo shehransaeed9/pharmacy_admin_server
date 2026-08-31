@@ -99,6 +99,9 @@ class Pharmacy(db.Model):
     def days_left(self):
         return (self.subscription_expiry - datetime.utcnow()).days
 
+@app.route('/')
+def home():
+    return redirect(url_for('admin_login'))
 
 class PaymentClaim(db.Model):
     id = db.Column(db.Integer, primary_key=True)
