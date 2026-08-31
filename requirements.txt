@@ -1,8 +1,6 @@
 Flask
 Flask-SQLAlchemy
-psycopg2-binary
-Flask
-Werkzeug
-Flask-SQLAlchemy
 SQLAlchemy
+Werkzeug
 psycopg2-binary
+
